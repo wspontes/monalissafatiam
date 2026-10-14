@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Studio 3D — Sublimação</title>
+<style>
+  :root { --bg:#14161a; --panel:#1e2228; --panel2:#262c34; --accent:#ff6f25; --text:#eef1f4; --muted:#9aa3ad; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:Segoe UI, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  header { padding:12px 20px; background:#0e1013; border-bottom:1px solid #2a3038; display:flex; align-items:center; gap:12px; }
+  header h1 { font-size:18px; margin:0; }
+  header span { color:var(--muted); font-size:13px; }
+  main { display:grid; grid-template-columns: 460px 1fr 300px; gap:12px; padding:12px; height:calc(100vh - 60px); }
+  .card { background:var(--panel); border:1px solid #2e353f; border-radius:10px; padding:12px; display:flex; flex-direction:column; min-height:0; }
+  .card h2 { font-size:14px; margin:0 0 8px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+  #wrap2d { position:relative; }
+  #template { width:100%; border-radius:8px; background:#fff; cursor:grab; touch-action:none; border:2px dashed #444; }
+  #template.selected { border-color:var(--accent); border-style:solid; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+  button, label.btn { background:var(--panel2); color:var(--text); border:1px solid #3a434f; border-radius:7px; padding:7px 10px; font-size:13px; cursor:pointer; }
+  button:hover, label.btn:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .row { display:flex; gap:8px; align-items:center; margin:6px 0; font-size:13px; }
+  .row label { width:90px; color:var(--muted); }
+  .row input[type=range] { flex:1; }
+  .row input[type=color] { width:40px; height:28px; padding:0; border:none; background:none; }
+  .row input[type=number] { width:70px; background:#111; color:#fff; border:1px solid #333; border-radius:5px; padding:4px; }
+  #render3d { width:100%; height:100%; min-height:400px; border-radius:8px; outline:none; }
+  #view3d { min-height:0; }
+  #layers { overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-top:8px; }
+  .layer { display:flex; gap:8px; align-items:center; background:var(--panel2); border:1px solid #333c46; border-radius:8px; padding:6px; font-size:12px; }
+  .layer.active { border-color:var(--accent); }
+  .layer img { width:44px; height:44px; object-fit:contain; background:#fff; border-radius:5px; }
+  .layer .meta { flex:1; min-width:0; }
+  .layer .meta b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .layer .ops { display:flex; gap:3px; flex-wrap:wrap; }
+  .layer .ops button { padding:3px 6px; font-size:11px; }
+  .hint { font-size:12px; color:var(--muted); line-height:1.5; }
+  .kbd { background:#000; padding:1px 6px; border-radius:4px; border:1px solid #333; font-size:11px; }
+  #dropzone { border:2px dashed #3a434f; border-radius:8px; padding:14px; text-align:center; color:var(--muted); font-size:13px; margin-bottom:8px; }
+  #dropzone.over { border-color:var(--accent); color:#fff; background:#2a2118; }
+  @media (max-width:1100px){ main{grid-template-columns:1fr; height:auto;} #render3d{height:420px;} }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/babylonjs@5.57.1/babylon.min.js"></script>
+</head>
+<body>
+<header>
+  <h1>☕ Studio 3D</h1>
+  <span>protótipo estilo RapidMockup — upload → edita → gira 360° → exporta p/ sublimação</span>
+</header>
+<main>
+  <!-- ESQUERDA: editor 2D -->
+  <section class="card">
+    <h2>1 · Gabarito de impressão (planificado)</h2>
+    <div id="dropzone">Arraste imagens aqui ou <label class="btn" style="display:inline">escolher arquivos<input id="fileInput" type="file" accept="image/*" multiple hidden></label></div>
+    <div id="wrap2d"><canvas id="template" width="2000" height="950"></canvas></div>
+    <div class="hint">Área total = volta completa da caneca (360°). <span class="kbd">arrastar</span> move · <span class="kbd">alças ☐</span> redimensiona livre · <span class="kbd">alça verde ○</span> gira · <span class="kbd">scroll</span> escala proporcional.</div>
+    <div class="toolbar">
+      <button id="btnFront">⤴ Trazer p/ frente</button>
+      <button id="btnBack">⤵ Enviar p/ trás</button>
+      <button id="btnFlipH">⇋ Inverter H (espelho)</button>
+      <button id="btnFlipV">⇅ Inverter V</button>
+      <button id="btnDup">⧉ Duplicar</button>
+      <button id="btnDel">🗑 Excluir</button>
+    </div>
+    <div class="row"><label>Posição X</label><input id="sX" type="range" min="0" max="2000" value="1000"><input id="nX" type="number" value="1000"></div>
+    <div class="row"><label>Posição Y</label><input id="sY" type="range" min="0" max="950" value="475"><input id="nY" type="number" value="475"></div>
+    <div class="row"><label>Largura</label><input id="sW" type="range" min="20" max="2000" value="600"><input id="nW" type="number" value="600"></div>
+    <div class="row"><label>Altura</label><input id="sH" type="range" min="20" max="950" value="400"><input id="nH" type="number" value="400"></div>
+    <div class="row"><label>Escala %</label><input id="sS" type="range" min="5" max="300" value="100"><input id="nS" type="number" value="100"><label style="width:auto"><input id="ckProp" type="checkbox" checked> proporc.</label></div>
+    <div class="row"><label>Rotação °</label><input id="sR" type="range" min="-180" max="180" value="0"><input id="nR" type="number" value="0"></div>
+    <div class="row"><label>Opacidade</label><input id="sO" type="range" min="10" max="100" value="100"><input id="nO" type="number" value="100"></div>
+  </section>
+
+  <!-- CENTRO: 3D -->
+  <section class="card" id="view3d">
+    <h2>2 · Visualização 3D (gire com o mouse)</h2>
+    <canvas id="render3d"></canvas>
+    <div class="toolbar" style="margin-top:10px">
+      <button id="btnSpin" class="primary">▶ Girar 360°</button>
+      <button id="btnAuto">⏸ Auto-girar: ON</button>
+      <button id="btnShot">📷 Foto 3D (PNG)</button>
+      <div class="row" style="margin:0"><label style="width:auto">Cor caneca</label><input id="mugColor" type="color" value="#ffffff"></div>
+      <div class="row" style="margin:0"><label style="width:auto">Fundo</label><input id="bgColor" type="color" value="#2b2f36"></div>
+    </div>
+    <div class="row"><label>Ângulo</label><input id="sAngle" type="range" min="0" max="360" value="30"><span id="angleVal">30°</span></div>
+  </section>
+
+  <!-- DIREITA: camadas + export -->
+  <section class="card">
+    <h2>3 · Camadas</h2>
+    <div id="layers"></div>
+    <h2 style="margin-top:12px">4 · Exportar p/ sublimação</h2>
+    <div class="row"><label>Espelhar saída</label><input id="ckMirror" type="checkbox" checked> <span class="hint">sublimação precisa sair espelhada</span></div>
+    <div class="toolbar">
+      <button id="btnExp" class="primary">⬇ Gabarito PNG</button>
+      <button id="btnExpFlat">⬇ PNG fundo branco</button>
+    </div>
+    <p class="hint">Fluxo p/ sublimação:<br>1. Monte a arte no gabarito<br>2. Exporte com “espelhar” ligado<br>3. Imprima no tamanho 20cm × 9,5cm<br><br>Estrutura pronta p/ expandir: mesma lógica serve p/ quadro retangular (troca o cilindro por um plano + moldura).</p>
+  </section>
+</main>
+
+<script>
+/* ================= EDITOR 2D (gabarito) ================= */
+const TW = 2000, TH = 950;
+const tpl = document.getElementById('template');
+const ctx = tpl.getContext('2d');
+let layers = []; let seq = 1; let selectedId = null;
+const sel = () => layers.find(l => l.id === selectedId);
+
+function effW(l){ return l.w * l.sw; }
+function effH(l){ return l.h * l.sh; }
+
+function drawTemplate() {
+  ctx.clearRect(0,0,TW,TH);
+  // fundo branco (cerâmica)
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,TW,TH);
+  // guias: centro + margens de segurança
+  ctx.strokeStyle = '#e0e0e0'; ctx.setLineDash([12,10]); ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(TW/2,0); ctx.lineTo(TW/2,TH); ctx.stroke();
+  ctx.strokeStyle = '#ff6f2544'; ctx.setLineDash([8,8]);
+  ctx.strokeRect(60,60,TW-120,TH-120);
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#999'; ctx.font = '28px sans-serif';
+  ctx.fillText('← emenda / alça fica aqui aprox. nas bordas laterais', 70, 45);
+  for (const l of layers) {
+    ctx.save();
+    ctx.globalAlpha = l.opacity;
+    ctx.translate(l.x, l.y);
+    ctx.rotate(l.rot * Math.PI/180);
+    ctx.scale(l.flipX, l.flipY);
+    ctx.drawImage(l.img, -effW(l)/2, -effH(l)/2, effW(l), effH(l));
+    ctx.restore();
+    if (l.id === selectedId) drawSelection(l);
+  }
+  renderLayerList();
+  sync3DTexture();
+  syncSliders();
+}
+
+// Desenha bbox + 8 alças de redimensionamento livre + alça de rotação
+function drawSelection(l) {
+  const w = effW(l), h = effH(l), th = l.rot * Math.PI/180;
+  ctx.save();
+  ctx.translate(l.x, l.y); ctx.rotate(th);
+  ctx.strokeStyle = '#ff6f25'; ctx.lineWidth = 4; ctx.setLineDash([16,10]);
+  ctx.strokeRect(-w/2, -h/2, w, h);
+  ctx.setLineDash([]);
+  const hs = 26; // tamanho da alça em px do canvas
+  const pts = { nw:[-w/2,-h/2], n:[0,-h/2], ne:[w/2,-h/2], e:[w/2,0], se:[w/2,h/2], s:[0,h/2], sw:[-w/2,h/2], w:[-w/2,0] };
+  for (const k in pts) {
+    const [px,py] = pts[k];
+    ctx.fillStyle = (k==='n'||k==='s') ? '#25a9ff' : '#ff6f25';
+    ctx.fillRect(px-hs/2, py-hs/2, hs, hs);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.strokeRect(px-hs/2, py-hs/2, hs, hs);
+  }
+  // alça de rotação (verde, acima)
+  ctx.beginPath(); ctx.moveTo(0,-h/2); ctx.lineTo(0,-h/2-70); ctx.strokeStyle='#22c55e'; ctx.lineWidth=4; ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,-h/2-95,22,0,Math.PI*2); ctx.fillStyle='#22c55e'; ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.stroke();
+  ctx.restore();
+}
+
+function addImageFile(file) {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    // dimensiona p/ caber: largura máx 45% do gabarito
+    const maxW = TW*0.45;
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const k = Math.min(1, maxW / w);
+    layers.push({ id: seq++, name: file.name || ('arte '+seq), img, x: TW/2, y: TH/2, w: w*k, h: h*k, sw: 1, sh: 1, rot: 0, opacity: 1, flipX: 1, flipY: 1 });
+    selectedId = layers[layers.length-1].id;
+    drawTemplate();
+  };
+  img.src = url;
+}
+
+function renderLayerList() {
+  const box = document.getElementById('layers');
+  box.innerHTML = '';
+  [...layers].reverse().forEach(l => {
+    const d = document.createElement('div');
+    d.className = 'layer' + (l.id===selectedId ? ' active' : '');
+    d.innerHTML = `<img><div class="meta"><b></b><span>${Math.round(effW(l))}×${Math.round(effH(l))}px ${l.flipX<0?'· espelhada':''}</span></div>`;
+    d.querySelector('img').src = l.img.src;
+    d.querySelector('b').textContent = l.name;
+    d.onclick = () => { selectedId = l.id; drawTemplate(); };
+    const ops = document.createElement('div'); ops.className='ops';
+    [['▲','front'],['▼','back'],['⇋','fliph'],['🗑','del']].forEach(([t,a])=>{
+      const b=document.createElement('button'); b.textContent=t; b.title=a;
+      b.onclick=(e)=>{e.stopPropagation(); selectedId=l.id; layerAction(a);};
+      ops.appendChild(b);
+    });
+    d.appendChild(ops); box.appendChild(d);
+  });
+  document.querySelectorAll('.toolbar button').forEach(()=>{});
+  const has = !!sel();
+  ['btnFront','btnBack','btnFlipH','btnFlipV','btnDup','btnDel'].forEach(id=>document.getElementById(id).disabled=!has);
+}
+
+function layerAction(a) {
+  const l = sel(); if(!l) return;
+  const i = layers.indexOf(l);
+  if (a==='front' && i<layers.length-1) { layers.splice(i,1); layers.push(l); }
+  if (a==='back' && i>0) { layers.splice(i,1); layers.unshift(l); }
+  if (a==='fliph') l.flipX*=-1;
+  if (a==='flipv') l.flipY*=-1;
+  if (a==='dup') layers.push({...l, id:seq++, name:l.name+' cópia', x:l.x+60, y:l.y+40});
+  if (a==='del') { layers.splice(i,1); selectedId = layers.length?layers[layers.length-1].id:null; }
+  drawTemplate();
+}
+['btnFront','btnBack','btnFlipH','btnFlipV','btnDup','btnDel'].forEach(()=>{});
+document.getElementById('btnFront').onclick=()=>layerAction('front');
+document.getElementById('btnBack').onclick=()=>layerAction('back');
+document.getElementById('btnFlipH').onclick=()=>layerAction('fliph');
+document.getElementById('btnFlipV').onclick=()=>layerAction('flipv');
+document.getElementById('btnDup').onclick=()=>layerAction('dup');
+document.getElementById('btnDel').onclick=()=>layerAction('del');
+
+// sliders <-> camada
+function bindPair(sId,nId,get,set){ const s=document.getElementById(sId),n=document.getElementById(nId);
+  s.oninput=()=>{set(+s.value);n.value=s.value;drawTemplate();};
+  n.oninput=()=>{set(+n.value);s.value=n.value;drawTemplate();};
+}
+bindPair('sX','nX',0,v=>sel()&&(sel().x=v));
+bindPair('sY','nY',0,v=>sel()&&(sel().y=v));
+bindPair('sW','nW',0,v=>{ const l=sel(); if(!l) return; const prop=document.getElementById('ckProp').checked; const nw=Math.max(20,v); const r=prop?nw/effW(l):1; l.sw=nw/l.w; if(prop) l.sh*=r; });
+bindPair('sH','nH',0,v=>{ const l=sel(); if(!l) return; const prop=document.getElementById('ckProp').checked; const nh=Math.max(20,v); const r=prop?nh/effH(l):1; l.sh=nh/l.h; if(prop) l.sw*=r; });
+bindPair('sS','nS',0,v=>{ const l=sel(); if(!l) return; const k=v/100; const base=Math.sqrt(l.sw*l.sh)||1; const f=k/(base||1); l.sw*=f; l.sh*=f; });
+bindPair('sR','nR',0,v=>sel()&&(sel().rot=v));
+bindPair('sO','nO',0,v=>sel()&&(sel().opacity=v/100));
+function syncSliders(){ const l=sel(); if(!l) return;
+  const set=(s,n,v)=>{const a=document.getElementById(s),b=document.getElementById(n); if(document.activeElement!==a)a.value=v; if(document.activeElement!==b)b.value=v;};
+  set('sX','nX',Math.round(l.x)); set('sY','nY',Math.round(l.y));
+  set('sW','nW',Math.round(effW(l))); set('sH','nH',Math.round(effH(l)));
+  set('sS','nS',Math.round(Math.sqrt(l.sw*l.sh)*100)); set('sR','nR',Math.round(l.rot)); set('sO','nO',Math.round(l.opacity*100));
+}
+
+// upload + dragdrop
+const fi=document.getElementById('fileInput'), dz=document.getElementById('dropzone');
+fi.onchange=e=>[...e.target.files].forEach(addImageFile);
+['dragover','dragenter'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('over');}));
+dz.addEventListener('drop',e=>[...e.dataTransfer.files].filter(f=>f.type.startsWith('image/')).forEach(addImageFile));
+
+// ============ TRANSFORMAÇÃO LIVRE (alças) ============
+let drag=null; // {mode:'move'|'resize'|'rot', ...}
+function toCanvas(e){ const r=tpl.getBoundingClientRect(); return { x:(e.clientX-r.left)*TW/r.width, y:(e.clientY-r.top)*TH/r.height }; }
+function layerAxes(l){ const t=l.rot*Math.PI/180; return { ux:{x:Math.cos(t),y:Math.sin(t)}, uy:{x:-Math.sin(t),y:Math.cos(t)} }; }
+function handlePositions(l){
+  const w=effW(l), h=effH(l), {ux,uy}=layerAxes(l);
+  const P=(ax,ay)=>({ x:l.x+ux.x*ax+uy.x*ay, y:l.y+ux.y*ax+uy.y*ay });
+  return {
+    nw:P(-w/2,-h/2), n:P(0,-h/2), ne:P(w/2,-h/2), e:P(w/2,0),
+    se:P(w/2,h/2), s:P(0,h/2), sw:P(-w/2,h/2), w:P(-w/2,0),
+    rot:P(0,-h/2-95)
+  };
+}
+function hitHandle(p, l){
+  const hs = handlePositions(l), R = 42; // raio de toque em px do canvas
+  for (const k in hs){ const dx=p.x-hs[k].x, dy=p.y-hs[k].y; if(Math.hypot(dx,dy)<R) return k; }
+  return null;
+}
+function pointInLayer(p, l){
+  const {ux,uy}=layerAxes(l); const dx=p.x-l.x, dy=p.y-l.y;
+  const lx=dx*ux.x+dy*ux.y, ly=dx*uy.x+dy*uy.y;
+  return Math.abs(lx)<=effW(l)/2 && Math.abs(ly)<=effH(l)/2;
+}
+function anchorFor(l, h){
+  const w=effW(l), hh=effH(l), {ux,uy}=layerAxes(l);
+  const ax = h.includes('e') ? -w/2 : h.includes('w') ? w/2 : 0;
+  const ay = h.includes('s') ? -hh/2 : h.includes('n') ? hh/2 : 0;
+  // norte/sul puros: ancora na borda oposta; leste/oeste idem
+  return { x:l.x+ux.x*ax+uy.x*ay, y:l.y+ux.y*ax+uy.y*ay };
+}
+tpl.addEventListener('pointerdown',e=>{
+  const p=toCanvas(e);
+  // 1) tenta alça da camada selecionada
+  const l0=sel();
+  if(l0){ const h=hitHandle(p,l0);
+    if(h){
+      if(h==='rot'){ drag={mode:'rot',id:l0.id}; }
+      else{ drag={mode:'resize',id:l0.id,h,anchor:anchorFor(l0,h)}; }
+      tpl.setPointerCapture(e.pointerId); e.preventDefault(); return;
+    }
+  }
+  // 2) seleciona camada de cima p/ baixo
+  for(let i=layers.length-1;i>=0;i--){ const l=layers[i];
+    if(pointInLayer(p,l)){ selectedId=l.id; drag={mode:'move',dx:p.x-l.x,dy:p.y-l.y}; tpl.setPointerCapture(e.pointerId); break; }
+  }
+  drawTemplate();
+});
+tpl.addEventListener('pointermove',e=>{
+  const p=toCanvas(e);
+  if(!drag){ // hover: cursor
+    const l=sel();
+    if(l){ const h=hitHandle(p,l);
+      if(h==='rot') tpl.style.cursor='grab';
+      else if(h) tpl.style.cursor = (h==='e'||h==='w')?'ew-resize':(h==='n'||h==='s')?'ns-resize':(h==='nw'||h==='se')?'nwse-resize':'nesw-resize';
+      else if(pointInLayer(p,l)) tpl.style.cursor='move';
+      else tpl.style.cursor='default';
+    }
+    return;
+  }
+  const l=layers.find(x=>x.id===drag.id)||sel(); if(!l) return;
+  if(drag.mode==='move'){ l.x=p.x-drag.dx; l.y=p.y-drag.dy; }
+  else if(drag.mode==='rot'){
+    const ang=Math.atan2(p.y-l.y,p.x-l.x)*180/Math.PI+90;
+    let a=((ang+180)%360+360)%360-180; l.rot=Math.round(a);
+  }
+  else if(drag.mode==='resize'){
+    const {ux,uy}=layerAxes(l), a=drag.anchor, h=drag.h;
+    const vx=p.x-a.x, vy=p.y-a.y;
+    let pw=vx*ux.x+vy*ux.y, ph=vx*uy.x+vy*uy.y;
+    const freeW=h.includes('e')||h.includes('w'), freeH=h.includes('n')||h.includes('s');
+    let nw=freeW?Math.abs(pw):effW(l), nh=freeH?Math.abs(ph):effH(l);
+    nw=Math.max(30,nw); nh=Math.max(30,nh);
+    // shift = proporcional nos cantos
+    if((freeW&&freeH)&&e.shiftKey){ const r0=(l.w*l.sw)/(l.h*l.sh); if(nw/nh>r0) nw=nh*r0; else nh=nw/r0; }
+    if(freeW) l.sw=nw/l.w;
+    if(freeH) l.sh=nh/l.h;
+    // recentraliza mantendo a âncora fixa
+    l.x=a.x+ux.x*(freeW?pw/2:sgnx(l,a,ux))+uy.x*(freeH?ph/2:sgny(l,a,uy));
+    l.y=a.y+ux.y*(freeW?pw/2:sgnx(l,a,ux))+uy.y*(freeH?ph/2:sgny(l,a,uy));
+  }
+  drawTemplate();
+});
+function sgnx(l,a,ux){ return ux.x*(l.x-a.x)+ux.y*(l.y-a.y); }
+function sgny(l,a,uy){ return uy.x*(l.x-a.x)+uy.y*(l.y-a.y); }
+['pointerup','pointercancel'].forEach(ev=>tpl.addEventListener(ev,()=>drag=null));
+tpl.addEventListener('wheel',e=>{ const l=sel(); if(!l)return; e.preventDefault(); const f=e.deltaY<0?1.08:0.92; l.sw=Math.min(4,Math.max(.05,l.sw*f)); if(!e.shiftKey) l.sh=Math.min(4,Math.max(.05,l.sh*f)); drawTemplate(); },{passive:false});
+
+/* ================= BABYLON 3D ================= */
+const canvas3d = document.getElementById('render3d');
+const engine = new BABYLON.Engine(canvas3d, true, { preserveDrawingBuffer:true, stencil:true });
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.17,0.18,0.21,1);
+const camera = new BABYLON.ArcRotateCamera('cam', BABYLON.Tools.ToRadians(30), BABYLON.Tools.ToRadians(72), 7.2, new BABYLON.Vector3(0,0.4,0), scene);
+camera.attachControl(canvas3d, true);
+camera.lowerRadiusLimit=4; camera.upperRadiusLimit=14;
+camera.useAutoRotationBehavior = true; camera.autoRotationBehavior.idleRotationSpeed = 0.8;
+const hemi = new BABYLON.HemisphericLight('h', new BABYLON.Vector3(0,1,0), scene); hemi.intensity=0.95;
+const dir = new BABYLON.DirectionalLight('d', new BABYLON.Vector3(-2,-4,-3), scene); dir.position=new BABYLON.Vector3(4,7,5); dir.intensity=0.9;
+// sem plano de chão: caneca flutuando, sem linha cortando o meio
+
+// textura dinâmica alimentada pelo gabarito 2D
+const dt = new BABYLON.DynamicTexture('print', {width:2048,height:1024}, scene, true);
+dt.hasAlpha = false; dt.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
+function sync3DTexture(){ const c=dt.getContext(); c.clearRect(0,0,2048,1024); c.drawImage(tpl,0,0,2048,1024); dt.update(); }
+
+const ceramic = new BABYLON.StandardMaterial('cer',scene);
+ceramic.diffuseColor = BABYLON.Color3.White(); ceramic.specularColor=new BABYLON.Color3(0.25,0.25,0.25);
+const printMat = new BABYLON.StandardMaterial('print',scene);
+printMat.diffuseTexture = dt; printMat.specularColor=new BABYLON.Color3(0.2,0.2,0.2);
+
+const mug = new BABYLON.TransformNode('mugRoot', scene);
+const H=2.5, RD=2.2;
+const side = BABYLON.MeshBuilder.CreateCylinder('side',{height:H,diameterTop:RD,diameterBottom:RD*0.96,tessellation:96,cap:BABYLON.Mesh.NO_CAP},scene);
+side.material = printMat; side.parent = mug;
+const bottom = BABYLON.MeshBuilder.CreateCylinder('bot',{height:0.08,diameter:RD*0.96,tessellation:64},scene);
+bottom.position.y=-H/2; bottom.material=ceramic; bottom.parent=mug;
+const inner = BABYLON.MeshBuilder.CreateCylinder('in',{height:H-0.12,diameterTop:RD-0.16,diameterBottom:RD-0.22,tessellation:64,cap:BABYLON.Mesh.NO_CAP,sideOrientation:BABYLON.Mesh.DOUBLESIDE},scene);
+inner.material=ceramic; inner.parent=mug;
+// (anel/rim do topo removido a pedido — era a "alça superior")
+// alça: tubo em curva C
+const pts=[new BABYLON.Vector3(RD/2-0.05,0.75,0),new BABYLON.Vector3(RD/2+0.75,0.62,0),new BABYLON.Vector3(RD/2+0.9,0,0),new BABYLON.Vector3(RD/2+0.75,-0.62,0),new BABYLON.Vector3(RD/2-0.05,-0.75,0)];
+const handle = BABYLON.MeshBuilder.CreateTube('handle',{path:BABYLON.Curve3.CreateCatmullRomSpline(pts,12).getPoints(),radius:0.13,tessellation:20},scene);
+handle.material=ceramic; handle.parent=mug;
+
+document.getElementById('mugColor').oninput=e=>{ ceramic.diffuseColor = BABYLON.Color3.FromHexString(e.target.value); };
+document.getElementById('bgColor').oninput=e=>{ const c=BABYLON.Color3.FromHexString(e.target.value); scene.clearColor=new BABYLON.Color4(c.r,c.g,c.b,1); };
+// ângulo manual
+const sA=document.getElementById('sAngle');
+sA.oninput=()=>{ stopAuto(); mug.rotation.y=BABYLON.Tools.ToRadians(+sA.value); document.getElementById('angleVal').textContent=sA.value+'°'; };
+// auto-girar
+let auto=true;
+function stopAuto(){ if(auto){auto=false; camera.autoRotationBehavior.idleRotationSpeed=0; document.getElementById('btnAuto').textContent='⏵ Auto-girar: OFF';} }
+document.getElementById('btnAuto').onclick=(e)=>{ auto=!auto; camera.autoRotationBehavior.idleRotationSpeed=auto?0.8:0; e.target.textContent=auto?'⏸ Auto-girar: ON':'⏵ Auto-girar: OFF'; };
+// botão girar 360 animado
+let spinning=false;
+document.getElementById('btnSpin').onclick=()=>{ if(spinning)return; spinning=true; stopAuto();
+  const start=mug.rotation.y, t0=performance.now(), DUR=2800;
+  const step=(t)=>{ const k=Math.min(1,(t-t0)/DUR); mug.rotation.y=start+k*Math.PI*2;
+    sA.value=Math.round(BABYLON.Tools.ToDegrees(mug.rotation.y)%360); document.getElementById('angleVal').textContent=sA.value+'°';
+    if(k<1)requestAnimationFrame(step); else spinning=false; };
+  requestAnimationFrame(step);
+};
+// foto 3D
+document.getElementById('btnShot').onclick=()=>{ BABYLON.Tools.CreateScreenshot(engine,camera,{width:1600,height:1200},(data)=>{ const a=document.createElement('a'); a.download='studio-3d-caneca.png'; a.href=data; a.click(); }); };
+
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener('resize',()=>engine.resize());
+
+/* ================= EXPORT SUBLIMAÇÃO ================= */
+function download(canvas, name){ const a=document.createElement('a'); a.download=name; a.href=canvas.toDataURL('image/png'); a.click(); }
+document.getElementById('btnExp').onclick=()=>{
+  const mirror=document.getElementById('ckMirror').checked;
+  const out=document.createElement('canvas'); out.width=TW; out.height=TH;
+  const o=out.getContext('2d');
+  if(mirror){ o.translate(TW,0); o.scale(-1,1); }
+  o.drawImage(tpl,0,0);
+  download(out, mirror?'gabarito-caneca-espelhado.png':'gabarito-caneca.png');
+};
+document.getElementById('btnExpFlat').onclick=()=>{ // garante fundo branco puro p/ gráfica
+  const mirror=document.getElementById('ckMirror').checked;
+  const out=document.createElement('canvas'); out.width=TW; out.height=TH;
+  const o=out.getContext('2d'); o.fillStyle='#fff'; o.fillRect(0,0,TW,TH);
+  o.save(); if(mirror){o.translate(TW,0);o.scale(-1,1);}
+  for(const l of layers){ o.save(); o.globalAlpha=l.opacity; o.translate(l.x,l.y); o.rotate(l.rot*Math.PI/180); o.scale(l.flipX,l.flipY); o.drawImage(l.img,-effW(l)/2,-effH(l)/2,effW(l),effH(l)); o.restore(); }
+  o.restore(); download(out,'gabarito-caneca-fundo-branco.png');
+};
+
+// demo inicial: desenha arte exemplo p/ ver o 3D funcionando sem upload
+(function demo(){ ctx.fillStyle='#fff'; ctx.fillRect(0,0,TW,TH); drawTemplate(); renderLayerList();
+  ['btnFront','btnBack','btnFlipH','btnFlipV','btnDup','btnDel'].forEach(id=>document.getElementById(id).disabled=true);
+})();
+</script>
+</body>
+</html>
