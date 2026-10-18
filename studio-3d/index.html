@@ -349,7 +349,12 @@ const dir = new BABYLON.DirectionalLight('d', new BABYLON.Vector3(-2,-4,-3), sce
 // textura dinâmica alimentada pelo gabarito 2D
 const dt = new BABYLON.DynamicTexture('print', {width:2048,height:1024}, scene, true);
 dt.hasAlpha = false; dt.wrapU = BABYLON.Texture.WRAP_ADDRESSMODE;
-function sync3DTexture(){ const c=dt.getContext(); c.clearRect(0,0,2048,1024); c.drawImage(tpl,0,0,2048,1024); dt.update(); }
+function sync3DTexture(){ const c=dt.getContext(); c.clearRect(0,0,2048,1024);
+// APENAS a área retangular de impressão (60px margem todos os lados)
+// Isso esconde as linhas tracejadas, textos e alças do gabarito fora da área
+c.save(); c.beginPath(); c.rect(60,60,TW-120,TH-120); c.clip();
+// desenha o template canvas inteiro, mas o clip() limita visível apenas a retângulo
+c.drawImage(tpl,0,0,TW,TH); c.restore(); dt.update(); }
 
 const ceramic = new BABYLON.StandardMaterial('cer',scene);
 ceramic.diffuseColor = BABYLON.Color3.White(); ceramic.specularColor=new BABYLON.Color3(0.25,0.25,0.25);
